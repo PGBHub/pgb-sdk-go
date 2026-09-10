@@ -1,11 +1,11 @@
-# pgbox-go
+# pgb-sdk-go
 
 Official Go client SDK for **PGB Hub**.
 
 ## Installation
 
 ```bash
-go get github.com/PGBHub/pgbox-sdk-go
+go get github.com/PGBHub/pgb-sdk-go
 ```
 
 ## Quick Start
@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/PGBHub/pgbox-sdk-go"
+	"github.com/PGBHub/pgb-sdk-go"
 )
 
 func main() {

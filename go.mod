@@ -1,3 +1,3 @@
-module github.com/PGBHub/pgbox-sdk-go
+module github.com/PGBHub/pgb-sdk-go
 
 go 1.21
