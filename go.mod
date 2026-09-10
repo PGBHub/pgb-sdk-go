@@ -1,3 +1,3 @@
-module github.com/Hydratik/pgbox-go
+module github.com/PGBHub/pgbox-sdk-go
 
 go 1.21

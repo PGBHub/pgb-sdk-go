@@ -1,11 +1,11 @@
 # pgbox-go
 
-Official Go client SDK for **PGBox Cloud**.
+Official Go client SDK for **PGB Hub**.
 
 ## Installation
 
 ```bash
-go get github.com/Hydratik/pgbox-go
+go get github.com/PGBHub/pgbox-sdk-go
 ```
 
 ## Quick Start
@@ -18,13 +18,13 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/Hydratik/pgbox-go"
+	"github.com/PGBHub/pgbox-sdk-go"
 )
 
 func main() {
 	client := pgbox.NewClient(pgbox.Config{
 		APIKey:   "your_api_key",
-		Endpoint: "https://cloud.pgboxhub.com",
+		Endpoint: "https://console.pgbhub.com",
 		Database: "my_database",
 	})
 
@@ -46,4 +46,4 @@ func main() {
 
 ## License
 
-MIT © [Hydratik](https://github.com/Hydratik)
+MIT © [PGBHub](https://github.com/PGBHub)
