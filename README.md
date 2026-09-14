@@ -22,7 +22,7 @@ import (
 )
 
 func main() {
-	client := pgbox.NewClient(pgbox.Config{
+	client := pgbhub.NewClient(pgbhub.Config{
 		APIKey:   "your_api_key",
 		Endpoint: "https://console.pgbhub.com",
 		Database: "my_database",

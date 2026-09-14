@@ -1,4 +1,4 @@
-package pgbox
+package pgbhub
 
 import (
 	"bytes"
@@ -63,14 +63,14 @@ type Schema struct {
 func NewClient(cfg Config) *Client {
 	endpoint := cfg.Endpoint
 	if endpoint == "" {
-		endpoint = os.Getenv("PGBOX_ENDPOINT")
+		endpoint = os.Getenv("PGBHUB_ENDPOINT")
 		if endpoint == "" {
-			endpoint = "https://cloud.pgboxhub.com"
+			endpoint = "https://cloud.pgbhub.com"
 		}
 	}
 	apiKey := cfg.APIKey
 	if apiKey == "" {
-		apiKey = os.Getenv("PGBOX_API_KEY")
+		apiKey = os.Getenv("PGBHUB_API_KEY")
 	}
 	db := cfg.Database
 	if db == "" {
