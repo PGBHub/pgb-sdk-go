@@ -29,6 +29,19 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.S
 	return c, server
 }
 
+func newTestClientWithProject(t *testing.T, projectID string, handler http.HandlerFunc) (*Client, *httptest.Server) {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	c := NewClient(Config{
+		Endpoint:  server.URL,
+		APIKey:    "pgb_sec_test",
+		Database:  "appdb",
+		ProjectID: projectID,
+	})
+	return c, server
+}
+
 func decodeBody(t *testing.T, r *http.Request) map[string]any {
 	t.Helper()
 	b, err := io.ReadAll(r.Body)
@@ -301,5 +314,232 @@ func TestCreateDatabaseSurfaces403ForProjectScopedKey(t *testing.T) {
 	}
 	if apiErr.StatusCode != 403 || !strings.Contains(apiErr.Message, "scoped to a single project") {
 		t.Fatalf("unexpected APIError: %+v", apiErr)
+	}
+}
+
+func TestCronCreatePostsTargetTypeAndTargetConfig(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotBody = decodeBody(t, r)
+		writeJSON(w, 201, map[string]any{"id": "cron_1", "name": "nightly"})
+	})
+
+	isEnabled := true
+	job, err := client.Cron.Create(context.Background(), "nightly", "0 0 * * *", "function", map[string]any{"function_name": "cleanup"}, &CreateCronJobOptions{
+		TimeoutSeconds: 60,
+		IsEnabled:      &isEnabled,
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if gotPath != "/api/v1/databases/appdb/crons" {
+		t.Fatalf("expected /api/v1/databases/appdb/crons, got %s", gotPath)
+	}
+	if gotBody["target_type"] != "function" {
+		t.Fatalf("expected target_type in body, got %+v", gotBody)
+	}
+	if job.Name != "nightly" {
+		t.Fatalf("expected name=nightly, got %+v", job)
+	}
+}
+
+func TestCronListReadsCronsField(t *testing.T) {
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"crons": []map[string]any{{"id": "cron_1"}}, "total": 1})
+	})
+
+	jobs, err := client.Cron.List(context.Background())
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("List failed: %v, %+v", err, jobs)
+	}
+}
+
+func TestCronToggleRunDeleteHitRightSubpaths(t *testing.T) {
+	step := 0
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch step {
+		case 0:
+			if r.URL.Path != "/api/v1/databases/appdb/crons/cron_1/toggle" {
+				t.Fatalf("expected toggle path, got %s", r.URL.Path)
+			}
+		case 1:
+			if r.URL.Path != "/api/v1/databases/appdb/crons/cron_1/run" {
+				t.Fatalf("expected run path, got %s", r.URL.Path)
+			}
+		case 2:
+			if r.Method != http.MethodDelete || r.URL.Path != "/api/v1/databases/appdb/crons/cron_1" {
+				t.Fatalf("expected DELETE crons/cron_1, got %s %s", r.Method, r.URL.Path)
+			}
+		}
+		step++
+		writeJSON(w, 200, map[string]any{})
+	})
+
+	if _, err := client.Cron.Toggle(context.Background(), "cron_1", false); err != nil {
+		t.Fatalf("Toggle failed: %v", err)
+	}
+	if _, err := client.Cron.Run(context.Background(), "cron_1"); err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if err := client.Cron.Delete(context.Background(), "cron_1"); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+}
+
+func TestJobsEnqueuePostsJobTypeAndUnwrapsJob(t *testing.T) {
+	var gotBody map[string]any
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotBody = decodeBody(t, r)
+		writeJSON(w, 201, map[string]any{"success": true, "job": map[string]any{"id": 1, "status": "pending"}})
+	})
+
+	job, err := client.Jobs.Enqueue(context.Background(), "send-report", "sql", map[string]any{"sql": "select 1"}, &EnqueueJobOptions{MaxAttempts: 3})
+	if err != nil {
+		t.Fatalf("Enqueue failed: %v", err)
+	}
+	if gotBody["job_type"] != "send-report" {
+		t.Fatalf("expected job_type in body, got %+v", gotBody)
+	}
+	if job.ID != 1 {
+		t.Fatalf("expected id=1, got %+v", job)
+	}
+}
+
+func TestJobsGetReturnsNilOnNotFound(t *testing.T) {
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 404, map[string]any{"error": "Job not found"})
+	})
+
+	job, err := client.Jobs.Get(context.Background(), 999)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if job != nil {
+		t.Fatalf("expected nil job, got %+v", job)
+	}
+}
+
+func TestJobsListSendsStatusAndLimitAsQueryParams(t *testing.T) {
+	var gotQuery string
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		writeJSON(w, 200, map[string]any{"success": true, "jobs": []map[string]any{}, "total": 0})
+	})
+
+	if _, err := client.Jobs.List(context.Background(), &ListJobsOptions{Status: "failed", Limit: 5}); err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if !strings.Contains(gotQuery, "status=failed") || !strings.Contains(gotQuery, "limit=5") {
+		t.Fatalf("expected status/limit in query, got %q", gotQuery)
+	}
+}
+
+func TestJobsCancelReturnsFalseOn409(t *testing.T) {
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 409, map[string]any{"error": "cannot cancel"})
+	})
+
+	cancelled, err := client.Jobs.Cancel(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cancelled {
+		t.Fatal("expected cancelled=false")
+	}
+}
+
+func TestQueuesWithoutProjectIDReturnsClearError(t *testing.T) {
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("no request should be made when ProjectID is missing")
+	})
+
+	_, err := client.Queues.Send(context.Background(), "my-queue", map[string]any{"hello": "world"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "ProjectID") {
+		t.Fatalf("expected a ProjectID error, got %v", err)
+	}
+}
+
+func TestQueuesSendHitsProjectScopedURL(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	client, _ := newTestClientWithProject(t, "prj_1", func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotBody = decodeBody(t, r)
+		writeJSON(w, 200, map[string]any{"ok": true, "message": map[string]any{"message_id": "msg_1", "deduplicated": false}})
+	})
+
+	msg, err := client.Queues.Send(context.Background(), "my-queue", map[string]any{"hello": "world"}, &SendMessageOptions{DelaySeconds: 5})
+	if err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
+	if gotPath != "/api/v1/projects/prj_1/queues/my-queue/send" {
+		t.Fatalf("expected project-scoped send path, got %s", gotPath)
+	}
+	if gotBody["delay_seconds"] != float64(5) {
+		t.Fatalf("expected delay_seconds=5 in body, got %+v", gotBody)
+	}
+	if msg.MessageID != "msg_1" {
+		t.Fatalf("expected message_id=msg_1, got %+v", msg)
+	}
+}
+
+func TestQueuesReceiveAckNackHitRightSubpaths(t *testing.T) {
+	step := 0
+	client, _ := newTestClientWithProject(t, "prj_1", func(w http.ResponseWriter, r *http.Request) {
+		switch step {
+		case 0:
+			if r.URL.Path != "/api/v1/projects/prj_1/queues/my-queue/receive" {
+				t.Fatalf("expected receive path, got %s", r.URL.Path)
+			}
+			writeJSON(w, 200, map[string]any{"ok": true, "count": 1, "messages": []map[string]any{{"message_id": "msg_1"}}})
+		case 1:
+			if r.URL.Path != "/api/v1/projects/prj_1/queues/my-queue/ack" {
+				t.Fatalf("expected ack path, got %s", r.URL.Path)
+			}
+			writeJSON(w, 200, map[string]any{"ok": true})
+		case 2:
+			if r.URL.Path != "/api/v1/projects/prj_1/queues/my-queue/nack" {
+				t.Fatalf("expected nack path, got %s", r.URL.Path)
+			}
+			writeJSON(w, 200, map[string]any{"ok": true})
+		}
+		step++
+	})
+
+	msgs, err := client.Queues.Receive(context.Background(), "my-queue", &ReceiveMessagesOptions{MaxMessages: 1})
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("Receive failed: %v, %+v", err, msgs)
+	}
+	if ok, err := client.Queues.Ack(context.Background(), "my-queue", "msg_1"); err != nil || !ok {
+		t.Fatalf("Ack failed: %v, %v", err, ok)
+	}
+	if ok, err := client.Queues.Nack(context.Background(), "my-queue", "msg_1", "boom"); err != nil || !ok {
+		t.Fatalf("Nack failed: %v, %v", err, ok)
+	}
+}
+
+func TestRealtimeBroadcastPostsToChannelEndpoint(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotBody = decodeBody(t, r)
+		writeJSON(w, 200, map[string]any{"ok": true, "broadcast": map[string]any{"delivered_to": 2}})
+	})
+
+	result, err := client.Realtime.Broadcast(context.Background(), "general", map[string]any{"text": "hi"}, "chat")
+	if err != nil {
+		t.Fatalf("Broadcast failed: %v", err)
+	}
+	if gotPath != "/api/v1/realtime/channels/general/broadcast" {
+		t.Fatalf("expected broadcast path, got %s", gotPath)
+	}
+	if gotBody["event"] != "chat" {
+		t.Fatalf("expected event=chat in body, got %+v", gotBody)
+	}
+	if result.Broadcast["delivered_to"] != float64(2) {
+		t.Fatalf("expected delivered_to=2, got %+v", result.Broadcast)
 	}
 }
