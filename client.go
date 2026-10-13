@@ -273,7 +273,7 @@ func NewClient(cfg Config) *Client {
 		if projectID != "" {
 			endpoint = "https://" + projectID + "." + domain
 		} else {
-			endpoint = "https://cloud.pgbhub.com"
+			endpoint = "https://console.pgbhub.com"
 		}
 	}
 	apiKey := cfg.APIKey

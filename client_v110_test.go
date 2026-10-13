@@ -35,7 +35,7 @@ func TestEndpointResolution(t *testing.T) {
 	if got := NewClient(Config{ProjectID: "shop"}).endpoint; got != "https://shop.pgbhub.app" {
 		t.Fatalf("project address: %s", got)
 	}
-	if got := NewClient(Config{}).endpoint; got != "https://cloud.pgbhub.com" {
+	if got := NewClient(Config{}).endpoint; got != "https://console.pgbhub.com" {
 		t.Fatalf("default: %s", got)
 	}
 	t.Setenv("PGBHUB_PROJECT_DOMAIN", "example.test")
