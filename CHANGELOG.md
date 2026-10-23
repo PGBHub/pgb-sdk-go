@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0
+
+- Mail: `client.Mail.Send(ctx, pgbhub.SendMailOptions{...})` posts to `/mail/send`. `ReplyTo` is sent as `reply_to`, only when set. `MailSendResult.MessageID` is filled from `MailID` when an older server returns only that.
+- Mail: a failed send is an `*APIError` with `StatusCode` and `Code`; with no mail provider configured that is 503 and `ErrCodeMailProviderUnavailable` (`"MAIL_PROVIDER_UNAVAILABLE"`). `pgbhub.IsMailProviderUnavailable(err)` checks for it. Sends are never retried.
+
 ## 1.1.0
 
 **Fixes (these affect existing apps)**

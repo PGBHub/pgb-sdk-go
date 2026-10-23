@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,6 +65,8 @@ type Client struct {
 	Queues *QueuesClient
 	// Realtime covers broadcast/subscribe channels.
 	Realtime *RealtimeClient
+	// Mail sends transactional email (needs the project's secret key).
+	Mail *MailClient
 }
 
 // APIError is returned by any request that reaches the server and gets
@@ -326,6 +329,7 @@ func NewClient(cfg Config) *Client {
 	c.Jobs = &JobsClient{client: c}
 	c.Queues = &QueuesClient{client: c}
 	c.Realtime = &RealtimeClient{client: c}
+	c.Mail = &MailClient{client: c}
 	return c
 }
 
@@ -1825,4 +1829,71 @@ func (r *RealtimeClient) Subscribe(ctx context.Context, channel string) (<-chan 
 	}()
 
 	return events, errs, nil
+}
+
+// ErrCodeMailProviderUnavailable is APIError.Code when the platform has no
+// mail provider configured (HTTP 503).
+const ErrCodeMailProviderUnavailable = "MAIL_PROVIDER_UNAVAILABLE"
+
+// IsMailProviderUnavailable reports whether err is the 503
+// MAIL_PROVIDER_UNAVAILABLE error from a mail send.
+func IsMailProviderUnavailable(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.Code == ErrCodeMailProviderUnavailable
+}
+
+// MailClient sends transactional email (`client.Mail`).
+type MailClient struct {
+	client *Client
+}
+
+// SendMailOptions is one email. To, Subject and Text are required.
+type SendMailOptions struct {
+	To      string
+	Subject string
+	Text    string
+	HTML    string
+	// From sets the sender; empty uses the project's default.
+	From string
+	// ReplyTo is one address for the Reply-To header. The server refuses
+	// line breaks, commas and semicolons (400). Empty sends no reply_to.
+	ReplyTo string
+}
+
+// MailSendResult is the server's answer to a send.
+type MailSendResult struct {
+	Success bool `json:"success"`
+	// MessageID identifies the sent message. It is filled from MailID when
+	// an older server returns only that.
+	MessageID string `json:"message_id"`
+	// MailID is the older name for MessageID; same value.
+	MailID   string `json:"mail_id"`
+	To       string `json:"to"`
+	From     string `json:"from"`
+	Provider string `json:"provider"`
+	Status   string `json:"status"`
+}
+
+// Send sends one email. A failure is an *APIError; with no mail provider
+// configured it has StatusCode 503 and Code ErrCodeMailProviderUnavailable
+// (see IsMailProviderUnavailable). Sends are never retried.
+func (m *MailClient) Send(ctx context.Context, opts SendMailOptions) (*MailSendResult, error) {
+	body := map[string]any{"to": opts.To, "subject": opts.Subject, "text": opts.Text}
+	if opts.HTML != "" {
+		body["html"] = opts.HTML
+	}
+	if opts.From != "" {
+		body["from"] = opts.From
+	}
+	if opts.ReplyTo != "" {
+		body["reply_to"] = opts.ReplyTo
+	}
+	var result MailSendResult
+	if err := m.client.doRequest(ctx, http.MethodPost, "/mail/send", body, nil, &result); err != nil {
+		return nil, err
+	}
+	if result.MessageID == "" {
+		result.MessageID = result.MailID
+	}
+	return &result, nil
 }

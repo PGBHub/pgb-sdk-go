@@ -110,6 +110,27 @@ client.Actions.Deliveries(ctx, pgbhub.DeliveryFilter{Status: "failed"}); client.
 
 Effects run after the SQL commits, retry on their own, and can target a function, queue, mail, event, job, realtime channel, container, another action, or a webhook.
 
+## Mail
+
+```go
+res, err := client.Mail.Send(ctx, pgbhub.SendMailOptions{
+	To:      "alex@example.com",
+	Subject: "Your receipt",
+	Text:    "Thanks for your order.",
+	HTML:    "<p>Thanks for your order.</p>",
+	ReplyTo: "support@acme.dev", // optional: one address for the Reply-To header
+})
+if pgbhub.IsMailProviderUnavailable(err) {
+	// 503, Code "MAIL_PROVIDER_UNAVAILABLE": no mail provider configured right now
+} else if err != nil {
+	log.Fatal(err)
+} else {
+	fmt.Println(res.MessageID)
+}
+```
+
+Sending needs the project's **secret key**. `ReplyTo` is a single address: line breaks, commas and semicolons are refused with a 400. `MessageID` identifies the sent message (on an older server it is filled from `MailID`). Sends are never retried.
+
 ## License
 
 MIT © [PGBHub](https://github.com/PGBHub)
