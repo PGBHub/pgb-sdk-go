@@ -1,13 +1,13 @@
 # Changelog
 
-## 1.2.0
+## 0.1.0 (unreleased)
+
+First release; not yet published.
 
 - Mail: `client.Mail.Send(ctx, pgbhub.SendMailOptions{...})` posts to `/mail/send`. `ReplyTo` is sent as `reply_to`, only when set. `MailSendResult.MessageID` is filled from `MailID` when an older server returns only that.
 - Mail: a failed send is an `*APIError` with `StatusCode` and `Code`; with no mail provider configured that is 503 and `ErrCodeMailProviderUnavailable` (`"MAIL_PROVIDER_UNAVAILABLE"`). `pgbhub.IsMailProviderUnavailable(err)` checks for it. Sends are never retried.
 
-## 1.1.0
-
-**Fixes (these affect existing apps)**
+**Fixes**
 - `ProjectID` alone now targets `https://<project>.pgbhub.app`; docs pointed at `console.pgbhub.com`. Override with `PGBHUB_PROJECT_DOMAIN`.
 - A database name is only sent when you configure one (project keys cannot use the default `postgres`).
 - `InvokeAction` and `GetSchema` return `*APIError` like every other call, with the server's message instead of a raw body.

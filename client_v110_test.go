@@ -1,4 +1,4 @@
-// 1.1.0: project address, APIError details, GET retries, the full auth
+// project address, APIError details, GET retries, the full auth
 // surface and Actions management, against a real httptest.Server.
 package pgbhub
 
